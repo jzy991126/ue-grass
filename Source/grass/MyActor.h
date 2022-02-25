@@ -21,8 +21,11 @@ public:
 	// Sets default values for this actor's properties
 	AMyActor();
 
-	UPROPERTY()
-		UStaticMeshComponent* _smComp;
+	UPROPERTY(EditAnywhere)
+		UStaticMeshComponent* StaticMeshComp;
+
+		UPROPERTY(EditAnywhere)
+	UMaterial *ss;
 
 	//UPROPERTY()
 	//	USceneComponent* Root;
@@ -80,6 +83,7 @@ protected:
 	void CalcNorm(int offset);
 	void GenGrass(int offset,FVector GenGrass);
 	void SetVertex(FVector* vertex, unsigned int count);
+
 
 
 public:	

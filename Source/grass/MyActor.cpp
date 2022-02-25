@@ -13,13 +13,13 @@ AMyActor::AMyActor()
 
 	mCSManager = FGenGrassCSManager::Get();
 
-	_smComp = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("smComp"), false);
+	StaticMeshComp = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("static_mesh"), false);
 
 
 	TimeStamp = 0;
 
 
-	SetRootComponent(_smComp);
+	SetRootComponent(StaticMeshComp);
 
 	staticMesh = CreateDefaultSubobject<UStaticMesh>("test");
 
@@ -35,7 +35,7 @@ AMyActor::AMyActor()
 	mUVs[1] = FVector2D(1, 0);
 	mUVs[2] = FVector2D(0, 0);
 
-	mGrassCount = 100;
+	mGrassCount = 20;
 
 	for (int i = 0; i < 20; i++) {
 		for (int j = 0; j < 20; j++) {
@@ -68,7 +68,8 @@ AMyActor::AMyActor()
 	staticMesh->BuildFromMeshDescriptions(mMeshDescPtrs, mdParams);
 
 	// 将 StaticMesh 指定给 StaticMeshComponent组件
-	_smComp->SetStaticMesh(staticMesh);
+	StaticMeshComp->SetStaticMesh(staticMesh);
+	
 
 	
 
@@ -80,7 +81,9 @@ void AMyActor::BeginPlay()
 	Super::BeginPlay();
 	mCSManager->BeginRendering();
 
-	//UMaterialInstanceDynamic* MID = _smComp->CreateAndSetMaterialInstanceDynamic(0);
+	
+
+	UMaterialInstanceDynamic* MID = StaticMeshComp->CreateAndSetMaterialInstanceDynamic(0);
 	//MID->SetTextureParameterValue("InputTexture", (UTexture*)RenderTarget);
 }
 
@@ -180,10 +183,13 @@ void AMyActor::Tick(float DeltaTime)
 	SetVertex(mCSManager->mData.GetData(), mGrassCount * _VertexCount);
 
 	staticMesh->BuildFromMeshDescriptions(mMeshDescPtrs, mdParams);
+	staticMesh->RenderData->LODResources[0].VertexBuffers.PositionVertexBuffer.GetVertexData();
+	staticMesh->SetMaterial(0, ss);
 
 
 	// 将 StaticMesh 指定给 StaticMeshComponent组件
-	_smComp->SetStaticMesh(staticMesh);
+	StaticMeshComp->SetStaticMesh(staticMesh);
+
 
 	
 

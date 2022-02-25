@@ -128,6 +128,8 @@ FGenGrassCSManager::FGenGrassCSManager()
 	mVertexUAV = RHICreateUnorderedAccessView(mRHIVertexBuffer.GetReference(), false,false);
 
 
+	
+
 	mNormalData.SetNum(mVertexCount);
 	mNormalRAData.SetNum(mVertexCount);
 	mNormalRAData.SetAllowCPUAccess(true);
@@ -157,6 +159,7 @@ void FGenGrassCSManager::Execute_RenderThread(FRHICommandListImmediate& RHICmdLi
 	//Render Thread Assertion
 	check(IsInRenderingThread());
 
+	//RHICmdList.CopyBufferRegion();
 
 	//If the render target is not valid, get an element from the render target pool by supplying a Descriptor
 	//if (!ComputeShaderOutput.IsValid())
@@ -172,6 +175,8 @@ void FGenGrassCSManager::Execute_RenderThread(FRHICommandListImmediate& RHICmdLi
 	//RHICmdList.TransitionResource(EResourceTransitionAccess::ERWBarrier, EResourceTransitionPipeline::EGfxToCompute, ComputeShaderOutput->GetRenderTargetItem().UAV);
 	RHICmdList.TransitionResource(EResourceTransitionAccess::ERWBarrier, EResourceTransitionPipeline::EGfxToCompute, mVertexUAV);
 	RHICmdList.TransitionResource(EResourceTransitionAccess::ERWBarrier, EResourceTransitionPipeline::EGfxToCompute, mNormalUAV);
+
+	//RHICmdList.BeginTransition();
 	//
 
 

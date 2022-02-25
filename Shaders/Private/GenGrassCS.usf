@@ -169,8 +169,8 @@ void GenerateGrassStraw(
         //vertex.textureCoordinate = texCoord;
 
         g_outVertexBuffer[baseVertexID + v] = vertexPos[v];
-        g_outNormalBuffer[baseVertexID + v] = vertexNormal[v];
-
+        //g_outNormalBuffer[baseVertexID + v] = vertexNormal[v];
+        g_outNormalBuffer[baseVertexID + v] = float3(v, v, v);
     }
 }
 
@@ -193,10 +193,15 @@ void MainComputeShader(uint3 Gid : SV_GroupID, //atm: -, 0...256, - in rows (Y) 
     float3 base_v = ddv * PatchZ * float3(0, 0, 1);
     float2 rootUV = float2((DTid.x + 0.5f) * ddu, (DTid.y + 0.5f) * ddv); // Center the uv at the root center.
     //float3 rootPos = float3(PatchX, PatchY, PatchZ) * float3(rootUV.x, rootUV.y, 0);
-    float3 rootPos = float3(DTid.x, DTid.y, 0);
+    float3 rootPos = float3(DTid.x * 5, DTid.y * 5, TimeOffset*10);
 
     float3 surfaceNormal = float3(0, 0, 1);
     uint baseVertexID = threadID * N_GRASS_VERTICES;
+
+    if (baseVertexID % 7 != 0)
+    {
+        return;
+    }
 
     uint grassType = dot(DTid & 1, 1) == 1;
     GenerateGrassStraw(baseVertexID, rootUV, rootPos, surfaceNormal, base_u, base_v, GRASS_X[grassType], GRASS_Y[grassType]);
