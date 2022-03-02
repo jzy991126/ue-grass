@@ -24,8 +24,11 @@ public:
 	UPROPERTY(EditAnywhere)
 		UStaticMeshComponent* StaticMeshComp;
 
-		UPROPERTY(EditAnywhere)
-	UMaterial *ss;
+	UPROPERTY(EditAnywhere)
+		UMaterial *ss;
+
+	UPROPERTY(EditAnywhere)
+		UStaticMesh* GrassMesh;
 
 	//UPROPERTY()
 	//	USceneComponent* Root;
@@ -36,55 +39,50 @@ public:
 	uint32_t TimeStamp;
 
 protected:
-	// Called when the game starts or when spawned
-	virtual void BeginPlay() override;
 
 
-	struct VertexInfo
+	struct FVertexInfo
 	{
-		int ID;					//对应的顶点ID
-		FVector InstanceNormal;	//此三角形中顶点的法线
-		FVector2D InstanceUV;	//此三角形中顶点的UV
-		VertexInfo(int InID, FVector InInstanceNormal, FVector2D InInstanceUV)
+		int ID;
+		FVector InstanceNormal;
+		FVector2D InstanceUV;
+		FVertexInfo(int InID, FVector InInstanceNormal, FVector2D InInstanceUV)
 			:ID(InID), InstanceNormal(InInstanceNormal), InstanceUV(InInstanceUV)
 		{
 		}
 	};
 
-	const unsigned int _VertexCount = 7;
-	const unsigned int _FaceCount = 5;
-	UStaticMesh* staticMesh;
-	FGenGrassCSManager* mCSManager;
 
-	TArray< FVertexID > mVertexIDs;
-	float mGrassX[7] = { -0.329877, 0.329877, -0.212571, 0.212571, -0.173286, 0.173286, 0.000000 };
-	float mGrassY[7] = { 0.000000, 0.000000, 2.490297, 2.490297, 4.847759, 4.847759, 8.000000 };
+	const unsigned int ConstGrassVertexCount = 7;
+	const unsigned int ConstGrassFaceCount = 5;
+	static const unsigned int MaxArraySize = 10000;
+	float ConstGrassPositionX[7] = { -0.329877, 0.329877, -0.212571, 0.212571, -0.173286, 0.173286, 0.000000 };
+	float ConstGrassPositionY[7] = { 0.000000, 0.000000, 2.490297, 2.490297, 4.847759, 4.847759, 8.000000 };
+	FIntVector ConstGrassIndices[5] = { {0, 2, 1}, {1, 2, 3}, {2, 4, 3}, {3, 4, 5}, {4, 6, 5} };
+	FVector2D UVData[3] = { {0,1},{1,0},{0,0} };
 
-	FIntVector mGrassIndices[5] = { {0, 2, 1}, {1, 2, 3}, {2, 4, 3}, {3, 4, 5}, {4, 6, 5} };
-	UStaticMesh::FBuildMeshDescriptionsParams mdParams;
+	
+	FGenGrassCSManager* GenGrassCSManager;
+	TArray<FVertexID> GrassVertexIDs;
+	UStaticMesh::FBuildMeshDescriptionsParams GrassBMDP;
+	FMeshDescriptionBuilder GrassMeshDescBuilder;
+	FMeshDescription GrassMeshDesc;
+	FVector GrassVertex[MaxArraySize];
+	int GrassNum;
+	float TimeElapsed = 0.0f;
+	FVector GrassVertexNormal[MaxArraySize],GrassFaceNorml[MaxArraySize];
+	int GrassIndices[MaxArraySize];
+	TArray<const FMeshDescription*> GrassMeshDescPtrs;
 
-	static const unsigned int MAXSIZE = 10000;
 
-	FMeshDescriptionBuilder mMeshDescBuilder;
-	FMeshDescription mMeshDesc;
-	FVector mVertex[MAXSIZE];
-	int mGrassCount;
-	float _timecount = 0.0f;
-
-	FVector mNormal[MAXSIZE],mFaceNorml[MAXSIZE];
-	int mIndices[MAXSIZE];
-	TArray<const FMeshDescription*> mMeshDescPtrs;
-
-	FVector2D mUVs[20];
-
-	void AppendTriangle(FMeshDescriptionBuilder& meshDescBuilder, TArray< FVertexID >& vertexIDs, FPolygonGroupID polygonGroup, TArray<VertexInfo> vertex);
-
+	
+	void AppendTriangle(FMeshDescriptionBuilder& meshDescBuilder, TArray< FVertexID >& vertexIDs, FPolygonGroupID polygonGroup, TArray<FVertexInfo> vertex);
 	FVector CalcFaceNorm(FVector a, FVector b, FVector c);
-	void CalcNorm(int offset);
-	void GenGrass(int offset,FVector GenGrass);
-	void SetVertex(FVector* vertex, unsigned int count);
-
-
+	void CalcNorm(int Offset);
+	void GenGrassCPU(int Offset,FVector RootPos);
+	void SetGrassVertex(FVector* Vertex, unsigned int VertexCount);
+	virtual void BeginPlay() override;
+	void InitGrassData();
 
 public:	
 	// Called every frame

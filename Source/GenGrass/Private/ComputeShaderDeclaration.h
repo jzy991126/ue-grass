@@ -3,7 +3,7 @@
 #include "CoreMinimal.h"
 #include "Runtime/Engine/Classes/Engine/TextureRenderTarget2D.h"
 
-#define MAX_GRASS_STRAWS_1D 50
+#define MAX_GRASS_STRAWS_1D 20
 #define THREAD_WIDTH 8
 #define THREAD_HEIGHT 8
 
@@ -14,20 +14,8 @@ struct TestStruct{
 //This struct act as a container for all the parameters that the client needs to pass to the Compute Shader Manager.
 struct FGenGrassCSParameters
 {
-	/*UTextureRenderTarget2D* RenderTarget;*/
-
-
-	//FIntPoint GetRenderTargetSize() const
-	//{
-	//	return CachedRenderTargetSize;
-	//}
 
 	FGenGrassCSParameters() { }
-	//FGenGrassCSParameters(UTextureRenderTarget2D* IORenderTarget)
-	//	: RenderTarget(IORenderTarget)
-	//{
-	//	CachedRenderTargetSize = RenderTarget ? FIntPoint(RenderTarget->SizeX, RenderTarget->SizeY) : FIntPoint::ZeroValue;
-	//}
 	
 public:
 	float TimeOffset;
@@ -35,9 +23,6 @@ public:
 };
 
 
-/// <summary>
-/// A singleton Shader Manager for our Shader Type
-/// </summary>
 class GENGRASS_API FGenGrassCSManager
 {
 public:
@@ -57,17 +42,19 @@ public:
 
 	// Call this whenever you have new parameters to share.
 	void UpdateParameters(FGenGrassCSParameters& DrawParameters);
+	void SetIndexBuffer(const FIndexBufferRHIRef& src);
+
+	void SteRTGeo(FRayTracingGeometry* aim);
 
 private:
 	//Private constructor to prevent client from instanciating
 	FGenGrassCSManager();
 public:
 
-	const int mVertexCount = 5000;
-
+	int mVertexCount = 6000;
 
 	
-	
+	void TestAssign(FVertexBufferRHIRef& aim);
 
 	//The singleton instance
 	static FGenGrassCSManager* instance;
@@ -89,12 +76,28 @@ public:
 	FUnorderedAccessViewRHIRef mVertexUAV;
 	TArray<FVector> mData;
 
-
 	TResourceArray<FVector> mNormalRAData;
 	FStructuredBufferRHIRef mRHINormalBuffer;
 	FUnorderedAccessViewRHIRef mNormalUAV;
 	TArray<FVector> mNormalData;
 
+	TResourceArray<float> mTestRAData;
+	FVertexBufferRHIRef  mRHITestBuffer;
+	FUnorderedAccessViewRHIRef mTestUAV;
+	TArray<float> mTestData;
+
+	FIndexBufferRHIRef mTestIndexBuffer;
+	UTexture2D *WindNoiseTexture;
+
+
+
+	FRayTracingGeometrySegment mRTGeoSeg;
+	FRayTracingGeometryRHIRef mRTGeoRHIRef;
+	TMemoryImageArray<FRayTracingGeometrySegment> mRTGeoSegArr;
+	FAccelerationStructureBuildParams mAccStructBuildPara;
+
+
+	
 	
 
 public:

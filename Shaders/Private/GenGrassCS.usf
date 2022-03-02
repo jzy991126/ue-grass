@@ -1,6 +1,6 @@
 #include "/Engine/Public/Platform.ush"
 
-#define MAX_GRASS_STRAWS_1D 50
+#define MAX_GRASS_STRAWS_1D 20
 #define N_TRIANGLES 5
 #define GRASS_TYPES 3
 #define N_GRASS_VERTICES 7
@@ -16,7 +16,12 @@
 #define PatchX 14.0f
 #define PatchY 14.0f
 #define PatchZ 14.0f
+#define WindStrength 0.11f
+#define windDirection float3(0,0,0)
 
+
+
+#define USERHI
 
 
 struct GrassPara
@@ -26,7 +31,11 @@ struct GrassPara
 
 RWStructuredBuffer<float3> g_outVertexBuffer : register(u0);
 RWStructuredBuffer<float3> g_outNormalBuffer : register(u1);
+RWBuffer<float> g_testBuffer;
+Texture2D<float4> g_wind;
 uint4 g_grassPara;
+
+SamplerState WrapLinearSampler : register(s0);
 
 
 //RWTexture2D<float> OutputTexture;
@@ -107,11 +116,11 @@ void GenerateGrassStraw(
             + RandomPositionJitterStrength * tangent
             - 0.001 * StrawHeight * up; // Root it in the ground a bit for bottom vertices not to stick out.
     
-    //float2 windCoord = frac(texCoord + cb.p.timeOffset);
-    //float3 windNoise = g_windMap.SampleLevel(WrapLinearSampler, windCoord, 0).rbg; // RGB -> RBG
-    float3 windNoise = float3(1, 1, 1);
+    float2 windCoord = frac(texCoord + TimeOffset);
+    float3 windNoise = g_wind.SampleLevel(WrapLinearSampler, windCoord, 0).rbg; // RGB -> RBG
+    //float3 windNoise = float3(1, 1, 1);
     windNoise = 2 * windNoise - 1; // [0, 1] -> [-1, 1]
-    float3 gradient = (0,0,0);
+    float3 gradient = WindStrength * (0.5 * windDirection + 2.5 * windNoise);
     
     gradient -= up * dot(up, gradient); // Project onto xz-plane.
     float3 nTangent = normalize(tangent);
@@ -164,14 +173,37 @@ void GenerateGrassStraw(
 
     texCoord *= (0.5f * (noiseUV.x + 1)); // [-1, 1] -> [0, 1]
 
+#ifdef USECPU
     for (uint v = 0; v < N_GRASS_VERTICES; v++)
     {
         //vertex.textureCoordinate = texCoord;
 
         g_outVertexBuffer[baseVertexID + v] = vertexPos[v];
         //g_outNormalBuffer[baseVertexID + v] = vertexNormal[v];
-        g_outNormalBuffer[baseVertexID + v] = float3(v, v, v);
+        g_outNormalBuffer[baseVertexID + v] = normalize(vertexNormal[v]);
+
     }
+#endif
+    
+    
+#ifdef USERHI
+    for (uint v = 0; v < N_TRIANGLES; v += 1)
+    {
+        for (uint i = 0; i < 3; i++)
+        {
+            uint ind = TRIANGLE_INDICES[v][i];
+            
+            g_outVertexBuffer[baseVertexID + v] = g_wind.SampleLevel(WrapLinearSampler, noiseUV, 0).xyz;
+            
+            g_testBuffer[baseVertexID + v * 9 + i * 3] = vertexPos[ind].x;
+            g_testBuffer[baseVertexID + v * 9 + i * 3 + 1] = vertexPos[ind].y;
+            g_testBuffer[baseVertexID + v * 9 + i * 3 + 2] = vertexPos[ind].z;
+            //g_testBuffer[baseVertexID + v * 9 + i * 3] = ind;
+            //g_testBuffer[baseVertexID + v * 9 + i * 3 + 1] = ind;
+            //g_testBuffer[baseVertexID + v * 9 + i * 3 + 2] = ind;
+        }
+    }
+#endif
 }
 
 
@@ -184,6 +216,9 @@ void MainComputeShader(uint3 Gid : SV_GroupID, //atm: -, 0...256, - in rows (Y) 
 {
    
 
+    if (any(DTid >= uint3(MAX_GRASS_STRAWS_1D, MAX_GRASS_STRAWS_1D, 2)))
+        return;
+  
     uint threadID = DTid.x + DTid.y * MAX_GRASS_STRAWS_1D;
 
 
@@ -193,22 +228,19 @@ void MainComputeShader(uint3 Gid : SV_GroupID, //atm: -, 0...256, - in rows (Y) 
     float3 base_v = ddv * PatchZ * float3(0, 0, 1);
     float2 rootUV = float2((DTid.x + 0.5f) * ddu, (DTid.y + 0.5f) * ddv); // Center the uv at the root center.
     //float3 rootPos = float3(PatchX, PatchY, PatchZ) * float3(rootUV.x, rootUV.y, 0);
-    float3 rootPos = float3(DTid.x * 5, DTid.y * 5, TimeOffset*10);
+    float3 rootPos = float3(DTid.x * 5, DTid.y * 5, 0);
 
     float3 surfaceNormal = float3(0, 0, 1);
-    uint baseVertexID = threadID * N_GRASS_VERTICES;
+    //uint baseVertexID = threadID * N_GRASS_VERTICES;
+#ifdef USERHI
+    uint baseVertexID = threadID * N_TRIANGLES * 3 * 3;
+#endif
 
-    if (baseVertexID % 7 != 0)
-    {
-        return;
-    }
+    //if (baseVertexID % 7 != 0)
+    //{
+    //    return;
+    //}
 
     uint grassType = dot(DTid & 1, 1) == 1;
     GenerateGrassStraw(baseVertexID, rootUV, rootPos, surfaceNormal, base_u, base_v, GRASS_X[grassType], GRASS_Y[grassType]);
-
-    //if (threadID < 100)
-    //{
-    //    g_outVertexBuffer[threadID] = float3(threadID, g_grassPara.y, TimeOffset);
-    //    g_outNormalBuffer[threadID] = float3(1, threadID, TimeOffset);
-    //}
 }

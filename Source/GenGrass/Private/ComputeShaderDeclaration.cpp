@@ -22,11 +22,6 @@ public:
 	DECLARE_GLOBAL_SHADER(FGenGrassCS);
 	//Tells the engine that this shader uses a structure for its parameters
 	SHADER_USE_PARAMETER_STRUCT(FGenGrassCS, FGlobalShader);
-	/// <summary>
-	/// DECLARATION OF THE PARAMETER STRUCTURE
-	/// The parameters must match the parameters in the HLSL code
-	/// For each parameter, provide the C++ type, and the name (Same name used in HLSL code)
-	/// </summary>
 	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
 		/*SHADER_PARAMETER_UAV(RWTexture2D<float>, OutputTexture)*/
 		/*SHADER_PARAMETER(FVector2D, Dimensions)*/
@@ -35,6 +30,9 @@ public:
 		SHADER_PARAMETER_SRV(StructuredBuffer<TestStruct>,mtest)
 		SHADER_PARAMETER_UAV(RWStructuredBuffer<FVector>, g_outVertexBuffer)
 		SHADER_PARAMETER_UAV(RWStructuredBuffer<FVector>, g_outNormalBuffer)
+		SHADER_PARAMETER_UAV(RWBuffer<float> ,g_testBuffer)
+		SHADER_PARAMETER_TEXTURE(Texture2D, g_wind)
+		SHADER_PARAMETER_SAMPLER(SamplerState, WrapLinearSampler)
 	END_SHADER_PARAMETER_STRUCT()
 
 public:
@@ -81,6 +79,9 @@ void FGenGrassCSManager::BeginRendering()
 	{
 		OnPostResolvedSceneColorHandle = RendererModule->GetResolvedSceneColorCallbacks().AddRaw(this, &FGenGrassCSManager::Execute_RenderThread);
 	}
+
+
+
 }
 
 //Stop the compute shader execution
@@ -110,6 +111,16 @@ void FGenGrassCSManager::UpdateParameters(FGenGrassCSParameters& params)
 	bCachedParamsAreValid = true;
 }
 
+void FGenGrassCSManager::SetIndexBuffer(const FIndexBufferRHIRef& src)
+{
+	mTestIndexBuffer = src;
+}
+
+void FGenGrassCSManager::SteRTGeo(FRayTracingGeometry* aim)
+{
+	aim->RayTracingGeometryRHI = mRTGeoRHIRef;
+}
+
 FGenGrassCSManager::FGenGrassCSManager()
 {
 	mData.Init(FVector(1, 1, 1), mVertexCount);
@@ -129,15 +140,46 @@ FGenGrassCSManager::FGenGrassCSManager()
 
 
 	
+	ConstructorHelpers::FObjectFinder<UTexture2D> WindNoiseTexObj(TEXT("Texture2D'/Game/wind2.wind2'"));
+
+	if (WindNoiseTexObj.Object != NULL)
+	{
+		WindNoiseTexture = WindNoiseTexObj.Object;
+		UE_LOG(LogTemp, Warning, TEXT("loadwindsc"));
+	}
+	else {
+		UE_LOG(LogTemp, Warning, TEXT("loadwindfa"));
+	}
+
+
+	
+	
 
 	mNormalData.SetNum(mVertexCount);
 	mNormalRAData.SetNum(mVertexCount);
 	mNormalRAData.SetAllowCPUAccess(true);
 	FRHIResourceCreateInfo create_normal_info;
 	create_normal_info.ResourceArray = &mNormalRAData;
-	mRHINormalBuffer = RHICreateStructuredBuffer(sizeof(FVector), VertexData.Num() * sizeof(FVector), BUF_ShaderResource | BUF_UnorderedAccess, create_normal_info);
+	mRHINormalBuffer = RHICreateStructuredBuffer(sizeof(FVector), mNormalRAData.Num() * sizeof(FVector), BUF_ShaderResource | BUF_UnorderedAccess, create_normal_info);
 	mNormalUAV = RHICreateUnorderedAccessView(mRHINormalBuffer.GetReference(), false, false);
 
+
+
+	mTestData.SetNum(mVertexCount*3);
+	mTestData.Init(1, mVertexCount*3);
+	mTestRAData.SetNum(mVertexCount*3);
+	mTestRAData.SetAllowCPUAccess(true);
+	FRHIResourceCreateInfo create_test_info;
+	create_test_info.ResourceArray = &mTestRAData;
+	mRHITestBuffer = RHICreateVertexBuffer(mTestData.Num() * sizeof(float), BUF_ShaderResource | BUF_UnorderedAccess, create_test_info);
+	mTestUAV = RHICreateUnorderedAccessView(mRHITestBuffer.GetReference(), PF_R32_FLOAT);
+
+}
+
+void FGenGrassCSManager::TestAssign(FVertexBufferRHIRef& aim)
+{
+	/*mRHITestBuffer = aim;*/
+	aim = mRHITestBuffer;
 }
 
 
@@ -149,61 +191,71 @@ FGenGrassCSManager::FGenGrassCSManager()
 /// </summary>
 void FGenGrassCSManager::Execute_RenderThread(FRHICommandListImmediate& RHICmdList, class FSceneRenderTargets& SceneContext)
 {
-	//If there's no cached parameters to use, skip
-	//If no Render Target is supplied in the cachedParams, skip
 	if (!(bCachedParamsAreValid))
 	{
 		return;
 	}
 
-	//Render Thread Assertion
 	check(IsInRenderingThread());
 
-	//RHICmdList.CopyBufferRegion();
 
-	//If the render target is not valid, get an element from the render target pool by supplying a Descriptor
-	//if (!ComputeShaderOutput.IsValid())
-	//{
-	//	UE_LOG(LogTemp, Warning, TEXT("Not Valid"));
-	//	FPooledRenderTargetDesc ComputeShaderOutputDesc(FPooledRenderTargetDesc::Create2DDesc(cachedParams.GetRenderTargetSize(), cachedParams.RenderTarget->GetRenderTargetResource()->TextureRHI->GetFormat(), FClearValueBinding::None, TexCreate_None, TexCreate_ShaderResource | TexCreate_UAV, false));
-	//	ComputeShaderOutputDesc.DebugName = TEXT("GenGrassCS_Output_RenderTarget");
-	//	GRenderTargetPool.FindFreeElement(RHICmdList, ComputeShaderOutputDesc, ComputeShaderOutput, TEXT("GenGrassCS_Output_RenderTarget"));
-	//}
-
-
-	//Specify the resource transition, we're executing this in post scene rendering so we set it to Graphics to Compute
-	//RHICmdList.TransitionResource(EResourceTransitionAccess::ERWBarrier, EResourceTransitionPipeline::EGfxToCompute, ComputeShaderOutput->GetRenderTargetItem().UAV);
 	RHICmdList.TransitionResource(EResourceTransitionAccess::ERWBarrier, EResourceTransitionPipeline::EGfxToCompute, mVertexUAV);
 	RHICmdList.TransitionResource(EResourceTransitionAccess::ERWBarrier, EResourceTransitionPipeline::EGfxToCompute, mNormalUAV);
 
-	//RHICmdList.BeginTransition();
-	//
+	FTextureResource* mtexres= WindNoiseTexture->Resource;
 
-
-	//Fill the shader parameters structure with tha cached data supplied by the client
 	FGenGrassCS::FParameters PassParameters;
-	/*PassParameters.OutputTexture = ComputeShaderOutput->GetRenderTargetItem().UAV;*/
-	//PassParameters.Dimensions = FVector2D(cachedParams.GetRenderTargetSize().X, cachedParams.GetRenderTargetSize().Y);
 	PassParameters.TimeOffset = cachedParams.TimeOffset;
 	PassParameters.g_outVertexBuffer = mVertexUAV;
 	PassParameters.g_outNormalBuffer = mNormalUAV;
 	PassParameters.g_grassPara = FUintVector4(8, 16, 32, 64);
+	PassParameters.g_testBuffer = mTestUAV;
+	PassParameters.g_wind = mtexres->GetTexture2DRHI();
+	PassParameters.WrapLinearSampler = TStaticSamplerState<SF_Point, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+
+
+
+
+
+	if (mRTGeoRHIRef.IsValid()) { // update
+
+		mAccStructBuildPara.BuildMode = EAccelerationStructureBuildMode::Update;
+		mAccStructBuildPara.Geometry = mRTGeoRHIRef;
+		mAccStructBuildPara.Segments = mRTGeoSegArr;
+
+		RHICmdList.BuildAccelerationStructures(MakeArrayView(&mAccStructBuildPara, 1));
+
+	}
+	else { // create 
+
+		mRTGeoSeg.VertexBuffer = mRHITestBuffer;
+		mRTGeoSeg.NumPrimitives = mVertexCount / 3;
+		mRTGeoSegArr.Add(mRTGeoSeg);
+
+		FRayTracingGeometryInitializer RTGI;
+		//RTGI.IndexBuffer = mTestIndexBuffer;
+		RTGI.TotalPrimitiveCount = mVertexCount / 3;
+		RTGI.DebugName = FName("Grass");
+		RTGI.bAllowUpdate = true;
+		RTGI.Segments = mRTGeoSegArr;
+
+		mRTGeoRHIRef = RHICreateRayTracingGeometry(RTGI);
+		RHICmdList.BuildAccelerationStructure(mRTGeoRHIRef);
+	}
+	
+	
+
 	
 	/*RHICreateShaderResourceView()*/
 
 
 
-	//Get a reference to our shader type from global shader map
 	TShaderMapRef<FGenGrassCS> GenGrassCS(GetGlobalShaderMap(GMaxRHIFeatureLevel));
 
-	//Dispatch the compute shader
 	FComputeShaderUtils::Dispatch(RHICmdList, GenGrassCS, PassParameters,
 		FIntVector(FMath::DivideAndRoundUp(MAX_GRASS_STRAWS_1D, THREAD_WIDTH),
 			FMath::DivideAndRoundUp(MAX_GRASS_STRAWS_1D, THREAD_HEIGHT), 1));
 
-	//FComputeShaderUtils::Dispatch(RHICmdList, GenGrassCS, PassParameters,
-	//	FIntVector(FMath::DivideAndRoundUp(100, NUM_THREADS_PER_GROUP_DIMENSION),
-	//		FMath::DivideAndRoundUp(100, NUM_THREADS_PER_GROUP_DIMENSION), 1));
 
 	//Copy shader's output to the render target provided by the client
 	/*RHICmdList.CopyTexture(ComputeShaderOutput->GetRenderTargetItem().ShaderResourceTexture, cachedParams.RenderTarget->GetRenderTargetResource()->TextureRHI, FRHICopyTextureInfo());*/
@@ -214,12 +266,23 @@ void FGenGrassCSManager::Execute_RenderThread(FRHICommandListImmediate& RHICmdLi
 	FMemory::Memcpy(dest, psource, size);*/
 	
 	//void* psource = RHICmdList.LockStructuredBuffer(source->StructuredBuffer, 0, size, RLM_ReadOnly);
-	void* psource = RHICmdList.LockStructuredBuffer(mRHIVertexBuffer, 0, sizeof(FVector) * mVertexCount, RLM_ReadOnly);
-	void* normal_source = RHICmdList.LockStructuredBuffer(mRHINormalBuffer, 0, sizeof(FVector) * mVertexCount, RLM_ReadOnly);
-	FMemory::Memcpy(mData.GetData(), psource, sizeof(FVector) * mVertexCount);
-	FMemory::Memcpy(mNormalData.GetData(), normal_source, sizeof(FVector) * mVertexCount);
-	RHICmdList.UnlockStructuredBuffer(mRHIVertexBuffer);
-	RHICmdList.UnlockStructuredBuffer(mRHINormalBuffer);
+
+
+	//RHICmdList.RayTraceDispatch
+
+	{
+
+
+		//void* psource = RHICmdList.LockStructuredBuffer(mRHIVertexBuffer, 0, sizeof(FVector) * mVertexCount, RLM_ReadOnly);
+		//void* normal_source = RHICmdList.LockStructuredBuffer(mRHINormalBuffer, 0, sizeof(FVector) * mVertexCount, RLM_ReadOnly);
+		//void* test_source = RHICmdList.LockVertexBuffer(mRHITestBuffer, 0, sizeof(float) * mVertexCount, RLM_ReadOnly);
+		//FMemory::Memcpy(mData.GetData(), psource, sizeof(FVector) * mVertexCount);
+		//FMemory::Memcpy(mNormalData.GetData(), normal_source, sizeof(FVector) * mVertexCount);
+		//FMemory::Memcpy(mTestData.GetData(), test_source, sizeof(float) * mVertexCount);
+		//RHICmdList.UnlockStructuredBuffer(mRHIVertexBuffer);
+		//RHICmdList.UnlockStructuredBuffer(mRHINormalBuffer);
+		//RHICmdList.UnlockVertexBuffer(mRHITestBuffer);
+	}
 
 }
   

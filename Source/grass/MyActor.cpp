@@ -11,64 +11,52 @@ AMyActor::AMyActor()
 	PrimaryActorTick.bCanEverTick = true;
 
 
-	mCSManager = FGenGrassCSManager::Get();
+	// init variables
 
+	GenGrassCSManager = FGenGrassCSManager::Get();
 	StaticMeshComp = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("static_mesh"), false);
-
-
 	TimeStamp = 0;
-
-
 	SetRootComponent(StaticMeshComp);
-
-	staticMesh = CreateDefaultSubobject<UStaticMesh>("test");
-
-	FStaticMeshAttributes Attributes(mMeshDesc);
+	GrassMesh = CreateDefaultSubobject<UStaticMesh>("test");
+	FStaticMeshAttributes Attributes(GrassMeshDesc);
 	Attributes.Register();
+	GrassMeshDescBuilder.SetMeshDescription(&GrassMeshDesc);
+	GrassMeshDescBuilder.EnablePolyGroups();
+	GrassMeshDescBuilder.SetNumUVLayers(1);
 
-	
-	mMeshDescBuilder.SetMeshDescription(&mMeshDesc);
-	mMeshDescBuilder.EnablePolyGroups();
-	mMeshDescBuilder.SetNumUVLayers(1);
 
-	mUVs[0] = FVector2D(0, 1);
-	mUVs[1] = FVector2D(1, 0);
-	mUVs[2] = FVector2D(0, 0);
+	GrassNum = 400;
 
-	mGrassCount = 20;
-
-	for (int i = 0; i < 20; i++) {
-		for (int j = 0; j < 20; j++) {
-			GenGrass(i*10+j, FVector(i*10, j*10, i+j));
-		}
+	for (int i = 0; i < GrassNum; i++) {
+		GenGrassCPU(i, FVector(i * 10 ,0,0));
 	}
+
+
+	// generate grass mesh via meshdescbuilder
 	{
-		mVertexIDs.SetNum(mGrassCount*_VertexCount);
+		GrassVertexIDs.SetNum(GrassNum*ConstGrassVertexCount);
 
-		for (unsigned int i = 0; i < mGrassCount * _VertexCount; i++) {
-			mVertexIDs[i] = mMeshDescBuilder.AppendVertex(mVertex[i]);
+		for (unsigned int i = 0; i < GrassNum * ConstGrassVertexCount; i++) {
+			GrassVertexIDs[i] = GrassMeshDescBuilder.AppendVertex(GrassVertex[i]);
 		}
 
-		FPolygonGroupID polygonGroup = mMeshDescBuilder.AppendPolygonGroup();
+		FPolygonGroupID polygonGroup = GrassMeshDescBuilder.AppendPolygonGroup();
 
-		for (unsigned int i = 0; i < mGrassCount * _FaceCount; i++) {
-			TArray<VertexInfo> infos;
+		for (unsigned int i = 0; i < GrassNum * ConstGrassFaceCount; i++) {
+			TArray<FVertexInfo> infos;
 			for (unsigned int j = 0; j < 3; j++) {
-				infos.Push(VertexInfo(mIndices[i * 3 + j], mNormal[mIndices[i * 3 + j]], mUVs[j]));
+				infos.Push(FVertexInfo(GrassIndices[i * 3 + j], GrassVertexNormal[GrassIndices[i * 3 + j]], UVData[j]));
 			}
-			AppendTriangle(mMeshDescBuilder, mVertexIDs, polygonGroup, infos);
+			AppendTriangle(GrassMeshDescBuilder, GrassVertexIDs, polygonGroup, infos);
 		}
 	}
 	
-	mdParams.bBuildSimpleCollision = false;
+	GrassMeshDescPtrs.Emplace(&GrassMeshDesc);
 
-	
-	mMeshDescPtrs.Emplace(&mMeshDesc);
+	GrassMesh->BuildFromMeshDescriptions(GrassMeshDescPtrs, GrassBMDP);
 
-	staticMesh->BuildFromMeshDescriptions(mMeshDescPtrs, mdParams);
-
-	// 将 StaticMesh 指定给 StaticMeshComponent组件
-	StaticMeshComp->SetStaticMesh(staticMesh);
+	// set static mesh
+	StaticMeshComp->SetStaticMesh(GrassMesh);
 	
 
 	
@@ -79,15 +67,26 @@ AMyActor::AMyActor()
 void AMyActor::BeginPlay()
 {
 	Super::BeginPlay();
-	mCSManager->BeginRendering();
+	GenGrassCSManager->BeginRendering();
+	GenGrassCSManager->TestAssign(GrassMesh->RenderData->LODResources[0].VertexBuffers.PositionVertexBuffer.VertexBufferRHI);
+	GenGrassCSManager->SetIndexBuffer(GrassMesh->RenderData->LODResources[0].IndexBuffer.IndexBufferRHI);
+	GenGrassCSManager->SteRTGeo(&GrassMesh->RenderData->LODResources[0].RayTracingGeometry);
 
-	
-
+	//GenGrassCSManager->TestAssign(GrassMesh->RenderData->LODResources[0].VertexBuffers.PositionVertexBuffer.VertexBufferRHI);
 	UMaterialInstanceDynamic* MID = StaticMeshComp->CreateAndSetMaterialInstanceDynamic(0);
 	//MID->SetTextureParameterValue("InputTexture", (UTexture*)RenderTarget);
+	GrassMesh->SetMaterial(0, ss);
+	StaticMeshComp->SetStaticMesh(GrassMesh);
+	StaticMeshComp->bEvaluateWorldPositionOffset=true;
 }
 
-void AMyActor::AppendTriangle(FMeshDescriptionBuilder& meshDescBuilder, TArray<FVertexID>& vertexIDs, FPolygonGroupID polygonGroup, TArray<VertexInfo> vertex)
+void AMyActor::InitGrassData()
+{
+
+
+}
+
+void AMyActor::AppendTriangle(FMeshDescriptionBuilder& meshDescBuilder, TArray<FVertexID>& vertexIDs, FPolygonGroupID polygonGroup, TArray<FVertexInfo> vertex)
 {
 			TArray<FVertexInstanceID > vertexInsts;//三角形中的每个顶点
 			for (int i = 0; i < 3; i++)
@@ -112,53 +111,54 @@ void AMyActor::CalcNorm(int offset)
 	
 }
 
-void AMyActor::GenGrass(int offset,FVector rootPos)
+void AMyActor::GenGrassCPU(int offset,FVector rootPos)
 {
 	FVector inNormal(0, 0, 1);
 	float scale = 10.0f;
 
-	const int vertexOffset = offset * _VertexCount;
+	const int vertexOffset = offset * ConstGrassVertexCount;
 
 	FVector2D noiseuv(FMath::RandRange(-1.f, 1.f), FMath::RandRange(-1.f, 1.f));
 	
 	for (int i = 0; i < 7; i++) {
-		float bendInterp = pow(mGrassY[i] / mGrassY[6], 1.5);
-		FVector y = scale * inNormal * mGrassY[i];
-		FVector xz = scale * (mGrassX[i] * FVector(1, 1, 1) + bendInterp *FVector(1,1,1));
-		mVertex[vertexOffset +i] = rootPos + y + xz;
+		float bendInterp = pow(ConstGrassPositionY[i] / ConstGrassPositionY[6], 1.5);
+		FVector y = scale * inNormal * ConstGrassPositionY[i];
+		FVector xz = scale * (ConstGrassPositionX[i] * FVector(1, 1, 1) + bendInterp *FVector(1,1,1));
+		GrassVertex[vertexOffset +i] = rootPos + y + xz;
 	}
 
-	const int faceOffset = offset * _FaceCount;
-	const int indexOffset = offset * _FaceCount * 3;
+	const int faceOffset = offset * ConstGrassFaceCount;
+	const int indexOffset = offset * ConstGrassFaceCount * 3;
 
 	for (int i = 0; i < 5; i++) {
-		mIndices[indexOffset +i*3] = mGrassIndices[i].X+ vertexOffset;
-		mIndices[indexOffset +i*3+1] = mGrassIndices[i].Y + vertexOffset;
-		mIndices[indexOffset +i*3+2] = mGrassIndices[i].Z + vertexOffset;
+		GrassIndices[indexOffset +i*3] = ConstGrassIndices[i].X+ vertexOffset;
+		GrassIndices[indexOffset +i*3+1] = ConstGrassIndices[i].Y + vertexOffset;
+		GrassIndices[indexOffset +i*3+2] = ConstGrassIndices[i].Z + vertexOffset;
 	}
 	for (int i = 0; i < 5; i++) {
-		mFaceNorml[faceOffset +i] = CalcFaceNorm(mVertex[vertexOffset+ mGrassIndices[i].X], mVertex[vertexOffset+ mGrassIndices[i].Y], mVertex[vertexOffset+ mGrassIndices[i].X]);
+		GrassFaceNorml[faceOffset +i] = CalcFaceNorm(GrassVertex[vertexOffset+ ConstGrassIndices[i].X], GrassVertex[vertexOffset+ ConstGrassIndices[i].Y], GrassVertex[vertexOffset+ ConstGrassIndices[i].X]);
 	}
 
 
-	mNormal[vertexOffset + 0] = mFaceNorml[vertexOffset];
-	mNormal[vertexOffset + 1] = 0.5f * (mFaceNorml[vertexOffset] + mFaceNorml[vertexOffset + 1]);
-	mNormal[vertexOffset + 2] = (1.f / 3) * (mFaceNorml[vertexOffset + 0] + mFaceNorml[vertexOffset + 1] + mFaceNorml[vertexOffset + 2]);
-	mNormal[vertexOffset + 3] = (1.f / 3) * (mFaceNorml[vertexOffset + 1] + mFaceNorml[vertexOffset + 2] + mFaceNorml[vertexOffset + 3]);
-	mNormal[vertexOffset + 4] = (1.f / 3) * (mFaceNorml[vertexOffset + 2] + mFaceNorml[vertexOffset + 3] + mFaceNorml[vertexOffset + 4]);
-	mNormal[vertexOffset + 5] = 0.5f * (mFaceNorml[vertexOffset + 3] + mFaceNorml[vertexOffset + 4]);
-	mNormal[vertexOffset + 6] = 0.5f * mFaceNorml[vertexOffset + 4];
+	GrassVertexNormal[vertexOffset + 0] = GrassFaceNorml[vertexOffset];
+	GrassVertexNormal[vertexOffset + 1] = 0.5f * (GrassFaceNorml[vertexOffset] + GrassFaceNorml[vertexOffset + 1]);
+	GrassVertexNormal[vertexOffset + 2] = (1.f / 3) * (GrassFaceNorml[vertexOffset + 0] + GrassFaceNorml[vertexOffset + 1] + GrassFaceNorml[vertexOffset + 2]);
+	GrassVertexNormal[vertexOffset + 3] = (1.f / 3) * (GrassFaceNorml[vertexOffset + 1] + GrassFaceNorml[vertexOffset + 2] + GrassFaceNorml[vertexOffset + 3]);
+	GrassVertexNormal[vertexOffset + 4] = (1.f / 3) * (GrassFaceNorml[vertexOffset + 2] + GrassFaceNorml[vertexOffset + 3] + GrassFaceNorml[vertexOffset + 4]);
+	GrassVertexNormal[vertexOffset + 5] = 0.5f * (GrassFaceNorml[vertexOffset + 3] + GrassFaceNorml[vertexOffset + 4]);
+	GrassVertexNormal[vertexOffset + 6] = 0.5f * GrassFaceNorml[vertexOffset + 4];
 	for (int i = 0; i < 7; i++) {
-		mNormal[vertexOffset + i].Normalize();
+		GrassVertexNormal[vertexOffset + i].Normalize();
 	}
 
 
 }
 
-void AMyActor::SetVertex(FVector* vertex, unsigned int count)
+void AMyActor::SetGrassVertex(FVector* vertex, unsigned int count)
 {
-	for (unsigned int i = 0; i < count; i++) {
-		mMeshDescBuilder.SetPosition(mVertexIDs[i], vertex[i]);
+	for (unsigned int i = 0; i < count*3; i+=3) {
+
+		GrassMeshDescBuilder.SetPosition(GrassVertexIDs[i], vertex[i]);
 	}
 
 }
@@ -167,28 +167,28 @@ void AMyActor::SetVertex(FVector* vertex, unsigned int count)
 void AMyActor::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
-	_timecount += DeltaTime;
+	TimeElapsed += DeltaTime;
+
+	
+	//GrassMesh->RenderData->LODResources[0].VertexBuffers.StaticMeshVertexBuffer.TangentsVertexBuffer.VertexBufferRHI
 
 	FGenGrassCSParameters parameters;
 	TimeStamp++;
-	parameters.TimeOffset = _timecount;
-	mCSManager->UpdateParameters(parameters);
+	parameters.TimeOffset = TimeElapsed;
+	GenGrassCSManager->UpdateParameters(parameters);
+	//GenGrassCSManager->SteRTGeo(&GrassMesh->RenderData->LODResources[0].RayTracingGeometry);
 
-
-	//for (int i = 0; i < 10; i++) {
-	//	for (int j = 0; j < 10; j++) {
-	//		GenGrass(i * 10 + j, FVector(i * 10+ DeltaTime*100, j * 10+ DeltaTime * 100, _timecount));
-	//	}
+	//for (int i = 0; i < GrassNum; i++) {
+	//	GenGrassCPU(i, FVector(i * 10, 0, TimeElapsed*10));
 	//}
-	SetVertex(mCSManager->mData.GetData(), mGrassCount * _VertexCount);
 
-	staticMesh->BuildFromMeshDescriptions(mMeshDescPtrs, mdParams);
-	staticMesh->RenderData->LODResources[0].VertexBuffers.PositionVertexBuffer.GetVertexData();
-	staticMesh->SetMaterial(0, ss);
+	//SetGrassVertex(GrassVertex, GrassNum * ConstGrassVertexCount);
 
+	//GrassMesh->BuildFromMeshDescriptions(GrassMeshDescPtrs, GrassBMDP);
 
-	// 将 StaticMesh 指定给 StaticMeshComponent组件
-	StaticMeshComp->SetStaticMesh(staticMesh);
+	
+	StaticMeshComp->MarkRenderStateDirty();
+	StaticMeshComp->MarkRenderDynamicDataDirty();
 
 
 	
